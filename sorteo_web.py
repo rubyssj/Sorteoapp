@@ -1,9 +1,9 @@
 import streamlit as st
-import pandas as pd
 import json
 import random
 from datetime import datetime
 import base64
+import csv
 import io
 
 # Configuración de la página
@@ -22,33 +22,35 @@ def cargar_participantes(archivo_csv):
     participantes = []
     
     try:
-        # Leer el archivo CSV con pandas
-        df = pd.read_csv(archivo_csv)
+        # Leer el archivo CSV como texto
+        content = archivo_csv.read().decode('utf-8')
+        lines = content.splitlines()
         
-        # Verificar si el archivo tiene la estructura esperada
-        if len(df.columns) >= 2:
-            # Procesar cada fila
-            for _, fila in df.iterrows():
+        # Usar el módulo csv para procesar el contenido
+        reader = csv.reader(lines)
+        
+        # Saltar la primera línea (encabezados)
+        next(reader, None)
+        
+        for fila in reader:
+            if len(fila) >= 2:
                 try:
                     # Obtener el ID del participante
-                    id_participante = str(fila.iloc[0])
+                    id_participante = fila[0].strip('"')
                     
-                    # Intentar procesar el campo de datos personales como JSON
-                    datos_json = fila.iloc[1]
-                    if isinstance(datos_json, str):
-                        # Limpiar las comillas extra en el campo de datos personales
-                        datos_json = datos_json.replace('""', '"').strip('"')
-                        datos_personales = json.loads(datos_json)
-                        
-                        nombre = datos_personales.get('nombre', '').strip()
-                        telefono = datos_personales.get('telefono', '').strip()
-                        
-                        if nombre and telefono:
-                            participantes.append({
-                                'id': id_participante,
-                                'nombre': nombre,
-                                'telefono': telefono
-                            })
+                    # Limpiar las comillas extra en el campo de datos personales
+                    datos_json = fila[1].replace('""', '"').strip('"')
+                    datos_personales = json.loads(datos_json)
+                    
+                    nombre = datos_personales.get('nombre', '').strip()
+                    telefono = datos_personales.get('telefono', '').strip()
+                    
+                    if nombre and telefono:
+                        participantes.append({
+                            'id': id_participante,
+                            'nombre': nombre,
+                            'telefono': telefono
+                        })
                 except Exception as e:
                     st.error(f"Error al procesar una fila: {e}")
                     continue
@@ -70,9 +72,25 @@ def realizar_sorteo(participantes, num_ganadores):
     return random.sample(participantes_copia, num_ganadores)
 
 # Función para crear un enlace de descarga
-def get_csv_download_link(df, filename, text):
-    csv = df.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()
+def get_csv_download_link(data, filename, text):
+    # Crear un archivo CSV en memoria
+    csv_buffer = io.StringIO()
+    writer = csv.writer(csv_buffer)
+    
+    # Escribir encabezados
+    writer.writerow(['ID', 'Nombre', 'Teléfono'])
+    
+    # Escribir datos
+    for item in data:
+        writer.writerow([
+            item.get('id', 'N/A'),
+            item.get('nombre', ''),
+            item.get('telefono', '')
+        ])
+    
+    # Codificar en base64
+    csv_str = csv_buffer.getvalue()
+    b64 = base64.b64encode(csv_str.encode()).decode()
     href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">{text}</a>'
     return href
 
@@ -90,8 +108,15 @@ if uploaded_file is not None:
     # Mostrar los primeros 5 participantes como ejemplo
     if participantes:
         st.write("Primeros participantes:")
-        df_muestra = pd.DataFrame(participantes[:5])
-        st.dataframe(df_muestra)
+        
+        # Crear una tabla con los primeros 5 participantes
+        table_data = []
+        for p in participantes[:5]:
+            table_data.append([p['id'], p['nombre'], p['telefono']])
+        
+        st.table({"ID": [p[0] for p in table_data], 
+                 "Nombre": [p[1] for p in table_data], 
+                 "Teléfono": [p[2] for p in table_data]})
     
     # Configuración del sorteo
     col1, col2 = st.columns(2)
@@ -119,18 +144,14 @@ if uploaded_file is not None:
             - **Teléfono:** {ganador['telefono']}
             """)
         
-        # Crear DataFrames para descargar
-        df_todos = pd.DataFrame(participantes)
-        df_ganadores = pd.DataFrame(ganadores)
-        
         # Generar enlaces de descarga
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         st.markdown("### Descargar resultados")
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown(get_csv_download_link(df_todos, f"participantes_{timestamp}.csv", "📥 Descargar lista de participantes"), unsafe_allow_html=True)
+            st.markdown(get_csv_download_link(participantes, f"participantes_{timestamp}.csv", "📥 Descargar lista de participantes"), unsafe_allow_html=True)
         with col2:
-            st.markdown(get_csv_download_link(df_ganadores, f"ganadores_{timestamp}.csv", "🏆 Descargar lista de ganadores"), unsafe_allow_html=True)
+            st.markdown(get_csv_download_link(ganadores, f"ganadores_{timestamp}.csv", "🏆 Descargar lista de ganadores"), unsafe_allow_html=True)
 
 # Instrucciones para el formato del CSV
 with st.expander("Formato del archivo CSV"):
@@ -148,4 +169,4 @@ with st.expander("Formato del archivo CSV"):
 
 # Pie de página
 st.markdown("---")
-st.markdown("Desarrollado con ❤️ usando Streamlit") 
+st.markdown("Desarrollado por Ruby con ❤️ usando Streamlit") 
